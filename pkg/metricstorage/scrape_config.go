@@ -27,16 +27,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type LabeledTarget struct {
-	IP   string
-	FQDN string
-}
-
 // ScrapeConfig creates a ScrapeConfig CR
 func ScrapeConfig(
 	instance *telemetryv1.MetricStorage,
 	labels map[string]string,
-	targets interface{},
+	targets []string,
 	tlsEnabled bool,
 ) *monv1alpha1.ScrapeConfig {
 	var scrapeInterval monv1.Duration
@@ -51,28 +46,10 @@ func ScrapeConfig(
 		scrapeInterval = telemetryv1.DefaultScrapeInterval
 	}
 
-	var staticConfigs []monv1alpha1.StaticConfig
-	if ips, ok := targets.([]string); ok {
-		sort.Strings(ips)
-		var convertedTargets []monv1alpha1.Target
-		for _, t := range ips {
-			convertedTargets = append(convertedTargets, monv1alpha1.Target(t))
-		}
-		staticConfigs = append(staticConfigs, monv1alpha1.StaticConfig{
-			Targets: convertedTargets,
-		})
-	} else if labeledTargets, ok := targets.([]LabeledTarget); ok {
-		sort.Slice(labeledTargets, func(i, j int) bool {
-			return labeledTargets[i].IP < labeledTargets[j].IP
-		})
-		for _, t := range labeledTargets {
-			staticConfigs = append(staticConfigs, monv1alpha1.StaticConfig{
-				Targets: []monv1alpha1.Target{monv1alpha1.Target(t.IP)},
-				Labels: map[monv1.LabelName]string{
-					"fqdn": t.FQDN,
-				},
-			})
-		}
+	sort.Strings(targets)
+	var convertedTargets []monv1alpha1.Target
+	for _, t := range targets {
+		convertedTargets = append(convertedTargets, monv1alpha1.Target(t))
 	}
 
 	scrapeConfig := &monv1alpha1.ScrapeConfig{
@@ -105,7 +82,11 @@ func ScrapeConfig(
 				},
 			},
 			ScrapeInterval: &scrapeInterval,
-			StaticConfigs:  staticConfigs,
+			StaticConfigs: []monv1alpha1.StaticConfig{
+				{
+					Targets: convertedTargets,
+				},
+			},
 		},
 	}
 

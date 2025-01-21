@@ -19,6 +19,7 @@ package availability
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"k8s.io/utils/ptr"
 
@@ -30,7 +31,7 @@ import (
 	telemetryv1 "github.com/openstack-k8s-operators/telemetry-operator/api/v1beta1"
 )
 
-// KSMStatefulSet requests deployment of kube-state-metrics and creation of TLS config if it is necessary
+// KSMStatefulSet requests seployment of kube-state-metrics and creation of TLS config if it is necessary
 func KSMStatefulSet(
 	instance *telemetryv1.Ceilometer,
 	tlsConfName string,
@@ -73,6 +74,7 @@ func KSMStatefulSet(
 
 	labels["app.kubernetes.io/component"] = "exporter"
 	labels["app.kubernetes.io/name"] = KSMServiceName
+	labels["app.kubernetes.io/version"] = instance.Spec.KSMImage[strings.LastIndex(instance.Spec.KSMImage, ":")+1:]
 
 	// kube-state-metrics relevant default arguments
 	args := []string{
@@ -168,10 +170,6 @@ func KSMStatefulSet(
 				},
 			},
 		},
-	}
-
-	if instance.Spec.NodeSelector != nil {
-		ss.Spec.Template.Spec.NodeSelector = *instance.Spec.NodeSelector
 	}
 
 	return ss, nil

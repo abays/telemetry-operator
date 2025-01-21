@@ -30,18 +30,15 @@ const (
 	// CeilometerNotificationContainerImage - default fall-back image for Ceilometer Notification
 	CeilometerNotificationContainerImage = "quay.io/podified-antelope-centos9/openstack-ceilometer-notification:current-podified"
 	// CeilometerSgCoreContainerImage - default fall-back image for Ceilometer SgCore
-	CeilometerSgCoreContainerImage = "quay.io/openstack-k8s-operators/sg-core:v6.0.0"
+	CeilometerSgCoreContainerImage = "quay.io/infrawatch/sg-core:v5.2.0-nextgen"
 	// CeilometerComputeContainerImage - default fall-back image for Ceilometer Compute
 	CeilometerComputeContainerImage = "quay.io/podified-antelope-centos9/openstack-ceilometer-compute:current-podified"
 	// CeilometerIpmiContainerImage - default fall-back image for Ceilometer Ipmi
 	CeilometerIpmiContainerImage = "quay.io/podified-antelope-centos9/openstack-ceilometer-ipmi:current-podified"
 	// CeilometerProxyContainerImage - default fall-back image for proxy container
-	// CeilometerProxyContainerImage = "registry.redhat.io/ubi9/httpd-24:latest"
 	CeilometerProxyContainerImage = "quay.io/podified-antelope-centos9/openstack-aodh-api:current-podified"
 	// KubeStateMetricsImage - default fall-back image for KSM
 	KubeStateMetricsImage = "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.0"
-	// MysqldExporterImage - default fall-back image for mysqld_exporter
-	MysqldExporterContainerImage = "quay.io/prometheus/mysqld-exporter:v0.16.0"
 )
 
 // CeilometerSpec defines the desired state of Ceilometer
@@ -66,20 +63,12 @@ type CeilometerSpec struct {
 	// +kubebuilder:validation:Required
 	ProxyImage string `json:"proxyImage"`
 
-	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Required
 	KSMImage string `json:"ksmImage"`
-
-	// +kubebuilder:validation:Optional
-	MysqldExporterImage string `json:"mysqldExporterImage"`
 }
 
 // CeilometerSpecCore defines the desired state of Ceilometer. This version is used by the OpenStackControlplane (no image parameters)
 type CeilometerSpecCore struct {
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=60
-	// APITimeout for Apache
-	APITimeout int `json:"apiTimeout"`
-
 	// RabbitMQ instance name
 	// Needed to request a transportURL that is created and used in Telemetry
 	// +kubebuilder:default=rabbitmq
@@ -113,23 +102,6 @@ type CeilometerSpecCore struct {
 	// NetworkAttachmentDefinitions list of network attachment definitions the service pod gets attached to
 	NetworkAttachmentDefinitions []string `json:"networkAttachmentDefinitions,omitempty"`
 
-	// Whether kube-state-metrics should be deployed
-	// +kubebuilder:validation:optional
-	// +kubebuilder:default=true
-	KSMEnabled *bool `json:"ksmEnabled,omitempty"`
-
-	// Whether mysqld_exporter should be deployed
-	// +kubebuilder:validation:optional
-	MysqldExporterEnabled *bool `json:"mysqldExporterEnabled,omitempty"`
-
-	// MysqldExporterDatabaseAccountPrefix - Database account prefix for the mysqld-exporter.
-	// A mariadbaccount CR named "<mysqldExporterDatabaseAccountPrefix>-<galera CR name>" for each
-	// galera instance needs to be either created by the user or if it's missing, it'll be
-	// created by the telemetry-operator automatically.
-	// +kubebuilder:validation:optional
-	// +kubebuilder:default=mysqld-exporter
-	MysqldExporterDatabaseAccountPrefix string `json:"mysqldExporterDatabaseAccountPrefix,omitempty"`
-
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	// TLS - Parameters related to the TLS
@@ -139,15 +111,6 @@ type CeilometerSpecCore struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	// KSMTLS - Parameters related to the TLS for kube-state-metrics
 	KSMTLS tls.SimpleService `json:"ksmTls,omitempty"`
-
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	// MysqldExporterTLS - Parameters related to the TLS for mysqld_exporter
-	MysqldExporterTLS tls.SimpleService `json:"mysqldExporterTLS,omitempty"`
-
-	// +kubebuilder:validation:Optional
-	// NodeSelector to target subset of worker nodes running this service
-	NodeSelector *map[string]string `json:"nodeSelector,omitempty"`
 }
 
 // CeilometerStatus defines the observed state of Ceilometer
@@ -172,27 +135,9 @@ type CeilometerStatus struct {
 	// then the controller has not processed the latest changes injected by
 	// the openstack-operator in the top-level CR (e.g. the ContainerImage)
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
-	// ReadyCount of mysqld_exporter instances
-	MysqldExporterReadyCount int32 `json:"mysqldExporterReadyCount,omitempty"`
-
-	// Map of hashes to track e.g. job status
-	MysqldExporterHash map[string]string `json:"mysqldExporterHash,omitempty"`
-
-	// List of galera CRs, which are being exported with mysqld_exporter
-	// +listType=atomic
-	MysqldExporterExportedGaleras []string `json:"mysqldExporterExportedGaleras,omitempty"`
-
-	// ReadyCount of kube-state-metrics instances
-	KSMReadyCount int32 `json:"ksmReadyCount,omitempty"`
-
-	// Map of hashes to track e.g. job status
-	KSMHash map[string]string `json:"ksmHash,omitempty"`
 }
 
-// NOTE(mmagr): remove KSMStatus with API version increment
-
-// KSMStatus defines the observed state of kube-state-metrics [DEPRECATED, Status is used instead]
+// KSMStatus defines the observed state of kube-state-metrics
 type KSMStatus struct {
 	// ReadyCount of ksm instances
 	ReadyCount int32 `json:"readyCount,omitempty"`
@@ -212,17 +157,15 @@ type KSMStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
-//+kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
 
 // Ceilometer is the Schema for the ceilometers API
 type Ceilometer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec      CeilometerSpec   `json:"spec,omitempty"`
-	Status    CeilometerStatus `json:"status,omitempty"`
-	KSMStatus KSMStatus        `json:"ksmStatus,omitempty"`
+	Spec             CeilometerSpec   `json:"spec,omitempty"`
+	CeilometerStatus CeilometerStatus `json:"status,omitempty"`
+	KSMStatus        KSMStatus        `json:"ksmStatus,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -236,7 +179,8 @@ type CeilometerList struct {
 
 // IsReady - returns true if Ceilometer is reconciled successfully
 func (instance Ceilometer) IsReady() bool {
-	return instance.Status.Conditions.IsTrue(condition.ReadyCondition)
+	return instance.CeilometerStatus.Conditions.IsTrue(condition.ReadyCondition) &&
+		instance.KSMStatus.Conditions.IsTrue(condition.ReadyCondition)
 }
 
 func init() {
@@ -245,7 +189,7 @@ func init() {
 
 // RbacConditionsSet - set the conditions for the rbac object
 func (instance Ceilometer) RbacConditionsSet(c *condition.Condition) {
-	instance.Status.Conditions.Set(c)
+	instance.CeilometerStatus.Conditions.Set(c)
 }
 
 // RbacNamespace - return the namespace
@@ -262,14 +206,13 @@ func (instance Ceilometer) RbacResourceName() string {
 func SetupDefaultsCeilometer() {
 	// Acquire environmental defaults and initialize Telemetry defaults with them
 	ceilometerDefaults := CeilometerDefaults{
-		CentralContainerImageURL:        util.GetEnvVar("RELATED_IMAGE_CEILOMETER_CENTRAL_IMAGE_URL_DEFAULT", CeilometerCentralContainerImage),
-		SgCoreContainerImageURL:         util.GetEnvVar("RELATED_IMAGE_CEILOMETER_SGCORE_IMAGE_URL_DEFAULT", CeilometerSgCoreContainerImage),
-		NotificationContainerImageURL:   util.GetEnvVar("RELATED_IMAGE_CEILOMETER_NOTIFICATION_IMAGE_URL_DEFAULT", CeilometerNotificationContainerImage),
-		ComputeContainerImageURL:        util.GetEnvVar("RELATED_IMAGE_CEILOMETER_COMPUTE_IMAGE_URL_DEFAULT", CeilometerComputeContainerImage),
-		IpmiContainerImageURL:           util.GetEnvVar("RELATED_IMAGE_CEILOMETER_IPMI_IMAGE_URL_DEFAULT", CeilometerIpmiContainerImage),
-		ProxyContainerImageURL:          util.GetEnvVar("RELATED_IMAGE_APACHE_IMAGE_URL_DEFAULT", CeilometerProxyContainerImage),
-		KSMContainerImageURL:            util.GetEnvVar("RELATED_IMAGE_KSM_IMAGE_URL_DEFAULT", KubeStateMetricsImage),
-		MysqldExporterContainerImageURL: util.GetEnvVar("RELATED_IMAGE_MYSQLD_EXPORTER_IMAGE_URL_DEFAULT", MysqldExporterContainerImage),
+		CentralContainerImageURL:      util.GetEnvVar("RELATED_IMAGE_CEILOMETER_CENTRAL_IMAGE_URL_DEFAULT", CeilometerCentralContainerImage),
+		SgCoreContainerImageURL:       util.GetEnvVar("RELATED_IMAGE_CEILOMETER_SGCORE_IMAGE_URL_DEFAULT", CeilometerSgCoreContainerImage),
+		NotificationContainerImageURL: util.GetEnvVar("RELATED_IMAGE_CEILOMETER_NOTIFICATION_IMAGE_URL_DEFAULT", CeilometerNotificationContainerImage),
+		ComputeContainerImageURL:      util.GetEnvVar("RELATED_IMAGE_CEILOMETER_COMPUTE_IMAGE_URL_DEFAULT", CeilometerComputeContainerImage),
+		IpmiContainerImageURL:         util.GetEnvVar("RELATED_IMAGE_CEILOMETER_IPMI_IMAGE_URL_DEFAULT", CeilometerIpmiContainerImage),
+		ProxyContainerImageURL:        util.GetEnvVar("RELATED_IMAGE_CEILOMETER_PROXY_IMAGE_URL_DEFAULT", CeilometerProxyContainerImage),
+		KSMContainerImageURL:          util.GetEnvVar("RELATED_IMAGE_KSM_IMAGE_URL_DEFAULT", KubeStateMetricsImage),
 	}
 
 	SetupCeilometerDefaults(ceilometerDefaults)

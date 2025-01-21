@@ -26,14 +26,13 @@ import (
 
 // CeilometerDefaults -
 type CeilometerDefaults struct {
-	CentralContainerImageURL        string
-	NotificationContainerImageURL   string
-	SgCoreContainerImageURL         string
-	ComputeContainerImageURL        string
-	IpmiContainerImageURL           string
-	ProxyContainerImageURL          string
-	KSMContainerImageURL            string
-	MysqldExporterContainerImageURL string
+	CentralContainerImageURL      string
+	NotificationContainerImageURL string
+	SgCoreContainerImageURL       string
+	ComputeContainerImageURL      string
+	IpmiContainerImageURL         string
+	ProxyContainerImageURL        string
+	KSMContainerImageURL          string
 }
 
 var ceilometerDefaults CeilometerDefaults
@@ -89,9 +88,6 @@ func (spec *CeilometerSpec) Default() {
 	}
 	if spec.KSMImage == "" {
 		spec.KSMImage = ceilometerDefaults.KSMContainerImageURL
-	}
-	if spec.MysqldExporterImage == "" {
-		spec.MysqldExporterImage = ceilometerDefaults.MysqldExporterContainerImageURL
 	}
 }
 

@@ -604,7 +604,6 @@ func (r *AutoscalingReconciler) generateServiceConfig(
 			string(databaseSecret.Data[mariadbv1.DatabasePasswordSelector]),
 			instance.Status.DatabaseHostname,
 			autoscaling.DatabaseName),
-		"Timeout": instance.Spec.Aodh.APITimeout,
 	}
 
 	prometheusParams := map[string]interface{}{
@@ -728,7 +727,7 @@ func (r *AutoscalingReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	//
 	// TODO: We also need a watch func to monitor for changes to the secret referenced by Autoscaling.Spec.Secret
 	Log := r.GetLogger(ctx)
-	transportURLSecretFn := func(_ context.Context, o client.Object) []reconcile.Request {
+	transportURLSecretFn := func(ctx context.Context, o client.Object) []reconcile.Request {
 		result := []reconcile.Request{}
 
 		// get all Autoscaling CRs
@@ -761,7 +760,7 @@ func (r *AutoscalingReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		}
 		return nil
 	}
-	memcachedFn := func(_ context.Context, o client.Object) []reconcile.Request {
+	memcachedFn := func(ctx context.Context, o client.Object) []reconcile.Request {
 		result := []reconcile.Request{}
 
 		// get all autoscaling CRs
@@ -781,35 +780,6 @@ func (r *AutoscalingReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 					Name:      cr.Name,
 				}
 				Log.Info(fmt.Sprintf("Memcached %s is used by Autoscaling CR %s", o.GetName(), cr.Name))
-				result = append(result, reconcile.Request{NamespacedName: name})
-			}
-		}
-		if len(result) > 0 {
-			return result
-		}
-		return nil
-	}
-	metricStorageFn := func(_ context.Context, o client.Object) []reconcile.Request {
-		result := []reconcile.Request{}
-
-		// get all autoscaling CRs
-		autoscalings := &telemetryv1.AutoscalingList{}
-		listOpts := []client.ListOption{
-			client.InNamespace(o.GetNamespace()),
-		}
-		if err := r.Client.List(context.Background(), autoscalings, listOpts...); err != nil {
-			Log.Error(err, "Unable to retrieve Autoscaling CRs %w")
-			return nil
-		}
-
-		for _, cr := range autoscalings.Items {
-			if cr.Spec.PrometheusHost == "" {
-				// the autoscaling is using MetricStorage for metrics
-				name := client.ObjectKey{
-					Namespace: o.GetNamespace(),
-					Name:      cr.Name,
-				}
-				Log.Info(fmt.Sprintf("MetricStorage %s is used by Autoscaling CR %s", o.GetName(), cr.Name))
 				result = append(result, reconcile.Request{NamespacedName: name})
 			}
 		}
@@ -876,11 +846,6 @@ func (r *AutoscalingReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findObjectsForSrc),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
-		Watches(
-			&telemetryv1.MetricStorage{},
-			handler.EnqueueRequestsFromMapFunc(metricStorageFn),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Complete(r)

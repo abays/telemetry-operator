@@ -19,8 +19,8 @@ package v1beta1
 import (
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/util"
@@ -58,11 +58,6 @@ type Aodh struct {
 
 // Aodh defines the aodh component spec
 type AodhCore struct {
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=60
-	// APITimeout for Route and Apache
-	APITimeout int `json:"apiTimeout"`
-
 	// RabbitMQ instance name
 	// Needed to request a transportURL that is created and used in Aodh
 	// +kubebuilder:default=rabbitmq
@@ -119,7 +114,7 @@ type AodhCore struct {
 	PreserveJobs bool `json:"preserveJobs"`
 
 	// Memcached instance name.
-	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Required
 	// +kubebuilder:default=memcached
 	MemcachedInstance string `json:"memcachedInstance"`
 
@@ -127,10 +122,6 @@ type AodhCore struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	// TLS - Parameters related to the TLS
 	TLS tls.API `json:"tls,omitempty"`
-
-	// +kubebuilder:validation:Optional
-	// NodeSelector to target subset of worker nodes running this service
-	NodeSelector *map[string]string `json:"nodeSelector,omitempty"`
 }
 
 // APIOverrideSpec to override the generated manifest of several child resources.
@@ -221,8 +212,6 @@ type AutoscalingStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
-//+kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
 
 // Autoscaling is the Schema for the autoscalings API
 type Autoscaling struct {

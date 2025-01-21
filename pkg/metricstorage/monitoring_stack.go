@@ -93,7 +93,7 @@ func getPVCSpec(instance *telemetryv1.MetricStorage) (*corev1.PersistentVolumeCl
 		if err != nil {
 			return nil, err
 		}
-		pvc.Resources = corev1.VolumeResourceRequirements{
+		pvc.Resources = corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				"storage": quantity,
 			},

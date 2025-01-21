@@ -29,18 +29,16 @@ import (
 
 // TelemetryDefaults -
 type TelemetryDefaults struct {
-	CentralContainerImageURL        string
-	ComputeContainerImageURL        string
-	NotificationContainerImageURL   string
-	SgCoreContainerImageURL         string
-	ProxyContainerImageURL          string
-	IpmiContainerImageURL           string
-	KsmContainerImageURL            string
-	MysqldExporterContainerImageURL string
-	AodhAPIContainerImageURL        string
-	AodhEvaluatorContainerImageURL  string
-	AodhNotifierContainerImageURL   string
-	AodhListenerContainerImageURL   string
+	CentralContainerImageURL       string
+	ComputeContainerImageURL       string
+	NotificationContainerImageURL  string
+	SgCoreContainerImageURL        string
+	ProxyContainerImageURL         string
+	IpmiContainerImageURL          string
+	AodhAPIContainerImageURL       string
+	AodhEvaluatorContainerImageURL string
+	AodhNotifierContainerImageURL  string
+	AodhListenerContainerImageURL  string
 }
 
 var telemetryDefaults TelemetryDefaults
@@ -92,12 +90,6 @@ func (spec *TelemetrySpec) Default() {
 	if spec.Ceilometer.CeilometerSpec.ProxyImage == "" {
 		spec.Ceilometer.CeilometerSpec.ProxyImage = telemetryDefaults.ProxyContainerImageURL
 	}
-	if spec.Ceilometer.CeilometerSpec.KSMImage == "" {
-		spec.Ceilometer.CeilometerSpec.KSMImage = telemetryDefaults.KsmContainerImageURL
-	}
-	if spec.Ceilometer.CeilometerSpec.MysqldExporterImage == "" {
-		spec.Ceilometer.CeilometerSpec.MysqldExporterImage = telemetryDefaults.MysqldExporterContainerImageURL
-	}
 	if spec.Autoscaling.AutoscalingSpec.Aodh.APIImage == "" {
 		spec.Autoscaling.AutoscalingSpec.Aodh.APIImage = telemetryDefaults.AodhAPIContainerImageURL
 	}
@@ -113,9 +105,8 @@ func (spec *TelemetrySpec) Default() {
 }
 
 // Default - set defaults for this Telemetry spec core
-// NOTE: only this version gets called by the Controlplane Webhook
 func (spec *TelemetrySpecCore) Default() {
-	spec.Autoscaling.Aodh.Default()
+	// nothing here yet
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.

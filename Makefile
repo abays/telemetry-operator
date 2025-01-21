@@ -54,7 +54,7 @@ OPERATOR_SDK_VERSION ?= v1.31.0
 DEFAULT_IMG ?= quay.io/openstack-k8s-operators/telemetry-operator:latest
 IMG ?= $(DEFAULT_IMG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.29
+ENVTEST_K8S_VERSION = 1.28
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -197,8 +197,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.14.0
-GOTOOLCHAIN_VERSION ?= go1.21.0
+CONTROLLER_TOOLS_VERSION ?= v0.11.1
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -330,7 +329,7 @@ golint: get-ci-tools
 
 .PHONY: gowork
 gowork: ## Generate go.work file to support our multi module repository
-	test -f go.work || GOTOOLCHAIN=$(GOTOOLCHAIN_VERSION) go work init
+	test -f go.work || go work init
 	go work use .
 	go work use ./api
 	go work sync
@@ -341,18 +340,19 @@ operator-lint: $(LOCALBIN) gowork ## Runs operator-lint
 	go vet -vettool=$(LOCALBIN)/operator-lint ./... ./api/...
 
 # Used for webhook testing
-# The configure_local_webhook.sh script below will remove any OLM webhooks
-# for the operator and also scale its deployment replicas down to 0 so that
-# the operator can run locally.
-# We will attempt to catch SIGINT/SIGTERM and clean up the local webhooks,
-# but it may be necessary to manually run ./hack/clean_local_webhook.sh
-# before deploying with OLM again for other untrappable signals.
+# Please ensure the telemetry-controller-manager deployment and
+# webhook definitions are removed from the csv before running
+# this. Also, cleanup the webhook configuration for local testing
+# before deplying with olm again.
+# $oc delete -n openstack validatingwebhookconfiguration/vtelemetry.kb.io
+# $oc delete -n openstack mutatingwebhookconfiguration/mtelemetry.kb.io
 SKIP_CERT ?=false
 .PHONY: run-with-webhook
 run-with-webhook: export METRICS_PORT?=8080
 run-with-webhook: export HEALTH_PORT?=8081
 run-with-webhook: manifests generate fmt vet ## Run a controller from your host.
-	/bin/bash hack/run_with_local_webhook.sh
+	/bin/bash hack/configure_local_webhook.sh
+	go run ./main.go -metrics-bind-address ":$(METRICS_PORT)" -health-probe-bind-address ":$(HEALTH_PORT)"
 
 .PHONY: kuttl-install
 kuttl-install:
@@ -399,11 +399,3 @@ kuttl-test-cleanup:
 	else \
 		echo "Namespce already cleaned up. Nothing to do"; \
 	fi
-
-CRD_SCHEMA_CHECKER_VERSION ?= release-4.16
-BRANCH ?= main
-
-PHONY: crd-schema-check
-crd-schema-check: manifests
-	INSTALL_DIR=$(LOCALBIN) CRD_SCHEMA_CHECKER_VERSION=$(CRD_SCHEMA_CHECKER_VERSION) hack/build-crd-schema-checker.sh
-	INSTALL_DIR=$(LOCALBIN) BASE_REF="$${PULL_BASE_SHA:-$(BRANCH)}" hack/crd-schema-checker.sh

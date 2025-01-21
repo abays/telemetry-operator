@@ -88,21 +88,10 @@ kind: ScrapeConfig
 metadata:
   labels:
     service: metricStorage
-  name: telemetry-node-exporter
+  name: telemetry
   ownerReferences:
   - kind: MetricStorage
     name: telemetry-kuttl
 spec:
-  scrapeInterval: 40s
----
-apiVersion: monitoring.rhobs/v1alpha1
-kind: ScrapeConfig
-metadata:
-  labels:
-    service: metricStorage
-  name: telemetry-node-exporter-tls
-  ownerReferences:
-  - kind: MetricStorage
-    name: telemetry-kuttl
-spec:
-  scrapeInterval: 40s
+  staticConfigs:
+    - {}

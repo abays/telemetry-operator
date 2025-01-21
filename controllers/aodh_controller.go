@@ -403,10 +403,10 @@ func (r *AutoscalingReconciler) reconcileNormalAodh(
 		)
 		if err != nil {
 			instance.Status.Conditions.Set(condition.FalseCondition(
-				condition.CreateServiceReadyCondition,
+				condition.ExposeServiceReadyCondition,
 				condition.ErrorReason,
 				condition.SeverityWarning,
-				condition.CreateServiceReadyErrorMessage,
+				condition.ExposeServiceReadyErrorMessage,
 				err.Error()))
 
 			return ctrl.Result{}, err
@@ -435,19 +435,19 @@ func (r *AutoscalingReconciler) reconcileNormalAodh(
 		ctrlResult, err := svc.CreateOrPatch(ctx, helper)
 		if err != nil {
 			instance.Status.Conditions.Set(condition.FalseCondition(
-				condition.CreateServiceReadyCondition,
+				condition.ExposeServiceReadyCondition,
 				condition.ErrorReason,
 				condition.SeverityWarning,
-				condition.CreateServiceReadyErrorMessage,
+				condition.ExposeServiceReadyErrorMessage,
 				err.Error()))
 
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			instance.Status.Conditions.Set(condition.FalseCondition(
-				condition.CreateServiceReadyCondition,
+				condition.ExposeServiceReadyCondition,
 				condition.RequestedReason,
 				condition.SeverityInfo,
-				condition.CreateServiceReadyRunningMessage))
+				condition.ExposeServiceReadyRunningMessage))
 			return ctrlResult, nil
 		}
 		// create service - end
@@ -464,7 +464,7 @@ func (r *AutoscalingReconciler) reconcileNormalAodh(
 			return ctrl.Result{}, err
 		}
 	}
-	instance.Status.Conditions.MarkTrue(condition.CreateServiceReadyCondition, condition.CreateServiceReadyMessage)
+	instance.Status.Conditions.MarkTrue(condition.ExposeServiceReadyCondition, condition.ExposeServiceReadyMessage)
 
 	if instance.Status.APIEndpoints == nil {
 		instance.Status.APIEndpoints = map[string]string{}

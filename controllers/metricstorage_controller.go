@@ -22,7 +22,6 @@ import (
 	"net"
 	"reflect"
 	"regexp"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -63,12 +62,10 @@ import (
 	"github.com/openstack-k8s-operators/telemetry-operator/pkg/dashboards"
 	metricstorage "github.com/openstack-k8s-operators/telemetry-operator/pkg/metricstorage"
 	telemetry "github.com/openstack-k8s-operators/telemetry-operator/pkg/telemetry"
-	utils "github.com/openstack-k8s-operators/telemetry-operator/pkg/utils"
 	rabbitmqv1 "github.com/rabbitmq/cluster-operator/api/v1beta1"
 	monv1 "github.com/rhobs/obo-prometheus-operator/pkg/apis/monitoring/v1"
 	monv1alpha1 "github.com/rhobs/obo-prometheus-operator/pkg/apis/monitoring/v1alpha1"
 	obov1 "github.com/rhobs/observability-operator/pkg/apis/monitoring/v1alpha1"
-	obsui "github.com/rhobs/observability-operator/pkg/apis/uiplugin/v1alpha1"
 )
 
 // fields to index to reconcile when change
@@ -96,14 +93,6 @@ type MetricStorageReconciler struct {
 	Watching   []string
 	RESTMapper meta.RESTMapper
 	Cache      cache.Cache
-}
-
-// ConnectionInfo holds information about connection to a compute node
-type ConnectionInfo struct {
-	IP       string
-	Hostname string
-	TLS      bool
-	FQDN     string
 }
 
 // GetLogger returns a logger object with a prefix of "conroller.name" and aditional controller context fields
@@ -309,10 +298,10 @@ func (r *MetricStorageReconciler) reconcileNormal(
 	err := r.ensureWatches(ctx, "monitoringstacks.monitoring.rhobs", &obov1.MonitoringStack{}, eventHandler)
 	if err != nil {
 		instance.Status.Conditions.MarkFalse(telemetryv1.MonitoringStackReadyCondition,
-			condition.Reason("Can't own MonitoringStack resource. The Cluster Observability Operator probably isn't installed"),
+			condition.Reason("Can't own MonitoringStack resource"),
 			condition.SeverityError,
 			telemetryv1.MonitoringStackUnableToOwnMessage, err)
-		Log.Info("Can't own MonitoringStack resource. The Cluster Observability Operator probably isn't installed")
+		Log.Info("Can't own MonitoringStack resource")
 		return ctrl.Result{RequeueAfter: telemetryv1.PauseBetweenWatchAttempts}, nil
 	}
 
@@ -347,7 +336,7 @@ func (r *MetricStorageReconciler) reconcileNormal(
 
 	if instance.Spec.PrometheusTLS.Enabled() {
 		// Patch Prometheus to add TLS
-		prometheusWatchFn := func(_ context.Context, o client.Object) []reconcile.Request {
+		prometheusWatchFn := func(ctx context.Context, o client.Object) []reconcile.Request {
 			name := client.ObjectKey{
 				Namespace: o.GetNamespace(),
 				Name:      o.GetName(),
@@ -357,10 +346,10 @@ func (r *MetricStorageReconciler) reconcileNormal(
 		err = r.ensureWatches(ctx, "prometheuses.monitoring.rhobs", &monv1.Prometheus{}, handler.EnqueueRequestsFromMapFunc(prometheusWatchFn))
 		if err != nil {
 			instance.Status.Conditions.MarkFalse(telemetryv1.PrometheusReadyCondition,
-				condition.Reason("Can't watch prometheus resource. The Cluster Observability Operator probably isn't installed"),
+				condition.Reason("Can't watch prometheus resource"),
 				condition.SeverityError,
 				telemetryv1.PrometheusUnableToWatchMessage, err)
-			Log.Info("Can't watch Prometheus resource. The Cluster Observability Operator probably isn't installed")
+			Log.Info("Can't watch Prometheus resource")
 			return ctrl.Result{RequeueAfter: telemetryv1.PauseBetweenWatchAttempts}, nil
 		}
 		prometheusTLSPatch := metricstorage.PrometheusTLS(instance)
@@ -441,7 +430,7 @@ func (r *MetricStorageReconciler) reconcileNormal(
 		instance.Status.Conditions.MarkTrue(telemetryv1.DashboardDefinitionReadyCondition, telemetryv1.DashboardsNotEnabledMessage)
 		instance.Status.Conditions.MarkTrue(telemetryv1.DashboardPluginReadyCondition, telemetryv1.DashboardsNotEnabledMessage)
 	} else {
-		if res, err := r.createDashboardObjects(ctx, instance, helper, eventHandler); err != nil {
+		if res, err := r.createDashboardObjects(ctx, instance, eventHandler); err != nil {
 			return res, err
 		}
 	}
@@ -516,7 +505,8 @@ func (r *MetricStorageReconciler) createServiceScrapeConfig(
 	log logr.Logger,
 	description string,
 	serviceName string,
-	desiredScrapeConfig *monv1alpha1.ScrapeConfig,
+	targets []string,
+	tlsEnabled bool,
 ) error {
 	scrapeConfig := &monv1alpha1.ScrapeConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -525,6 +515,10 @@ func (r *MetricStorageReconciler) createServiceScrapeConfig(
 		},
 	}
 	op, err := controllerutil.CreateOrPatch(ctx, r.Client, scrapeConfig, func() error {
+		desiredScrapeConfig := metricstorage.ScrapeConfig(instance,
+			serviceLabels,
+			targets,
+			tlsEnabled)
 		desiredScrapeConfig.Spec.DeepCopyInto(&scrapeConfig.Spec)
 		scrapeConfig.ObjectMeta.Labels = desiredScrapeConfig.ObjectMeta.Labels
 		err := controllerutil.SetControllerReference(instance, scrapeConfig, r.Scheme)
@@ -532,7 +526,7 @@ func (r *MetricStorageReconciler) createServiceScrapeConfig(
 	})
 
 	if err == nil && op != controllerutil.OperationResultNone {
-		log.Info(fmt.Sprintf("%s ScrapeConfig %s successfully changed - operation: %s", description, scrapeConfig.GetName(), string(op)))
+		log.Info(fmt.Sprintf("%s ScrapeConfig %s successfully changed - operation: %s", description, scrapeConfig.Name, string(op)))
 	}
 	return err
 }
@@ -547,10 +541,10 @@ func (r *MetricStorageReconciler) createScrapeConfigs(
 	err := r.ensureWatches(ctx, "scrapeconfigs.monitoring.rhobs", &monv1alpha1.ScrapeConfig{}, eventHandler)
 	if err != nil {
 		instance.Status.Conditions.MarkFalse(telemetryv1.ScrapeConfigReadyCondition,
-			condition.Reason("Can't own ScrapeConfig resource. The Cluster Observability Operator probably isn't installed"),
+			condition.Reason("Can't own ScrapeConfig resource"),
 			condition.SeverityError,
 			telemetryv1.ScrapeConfigUnableToOwnMessage, err)
-		Log.Info("Can't own ScrapeConfig resource. The Cluster Observability Operator probably isn't installed")
+		Log.Info("Can't own ScrapeConfig resource")
 		return ctrl.Result{RequeueAfter: telemetryv1.PauseBetweenWatchAttempts}, nil
 	}
 
@@ -558,14 +552,8 @@ func (r *MetricStorageReconciler) createScrapeConfigs(
 	ceilometerRoute := fmt.Sprintf("%s-internal.%s.svc", ceilometer.ServiceName, instance.Namespace)
 	ceilometerTarget := []string{fmt.Sprintf("%s:%d", ceilometerRoute, ceilometer.CeilometerPrometheusPort)}
 	ceilometerCfgName := fmt.Sprintf("%s-ceilometer", telemetry.ServiceName)
-	desiredScrapeConfig := metricstorage.ScrapeConfig(
-		instance,
-		serviceLabels,
-		ceilometerTarget,
-		instance.Spec.PrometheusTLS.Enabled(),
-	)
 	err = r.createServiceScrapeConfig(ctx, instance, Log, "Ceilometer",
-		ceilometerCfgName, desiredScrapeConfig)
+		ceilometerCfgName, ceilometerTarget, instance.Spec.PrometheusTLS.Enabled())
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -574,14 +562,8 @@ func (r *MetricStorageReconciler) createScrapeConfigs(
 	ksmRoute := fmt.Sprintf("%s.%s.svc", availability.KSMServiceName, instance.Namespace)
 	ksmTarget := []string{fmt.Sprintf("%s:%d", ksmRoute, availability.KSMMetricsPort)}
 	ksmCfgName := fmt.Sprintf("%s-ksm", telemetry.ServiceName)
-	desiredScrapeConfig = metricstorage.ScrapeConfig(
-		instance,
-		serviceLabels,
-		ksmTarget,
-		instance.Spec.PrometheusTLS.Enabled(),
-	)
 	err = r.createServiceScrapeConfig(ctx, instance, Log, "kube-state-metrics",
-		ksmCfgName, desiredScrapeConfig)
+		ksmCfgName, ksmTarget, instance.Spec.PrometheusTLS.Enabled())
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -604,175 +586,63 @@ func (r *MetricStorageReconciler) createScrapeConfigs(
 		rabbitTargets = append(rabbitTargets, fmt.Sprintf("%s:%d", rabbitServerName, metricstorage.RabbitMQPrometheusPort))
 	}
 	rabbitCfgName := fmt.Sprintf("%s-rabbitmq", telemetry.ServiceName)
-	desiredScrapeConfig = metricstorage.ScrapeConfig(
-		instance,
-		serviceLabels,
-		rabbitTargets,
-		instance.Spec.PrometheusTLS.Enabled(),
-	)
 	err = r.createServiceScrapeConfig(ctx, instance, Log, "RabbitMQ",
-		rabbitCfgName, desiredScrapeConfig)
+		rabbitCfgName, rabbitTargets, instance.Spec.PrometheusTLS.Enabled())
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	connectionInfo, err := getComputeNodesConnectionInfo(instance, helper, telemetry.ServiceName)
+	// ScrapeConfigs for NodeExporters
+	endpointsNonTLS, endpointsTLS, err := getNodeExporterTargets(instance, helper)
 	if err != nil {
-		Log.Info(fmt.Sprintf("Cannot get compute node connection info. Scrape configs not created. Error: %s", err))
+		Log.Info(fmt.Sprintf("Cannot get node exporter targets. Scrape configs not created. Error: %s", err))
 	}
 
-	// ScrapeConfigs for NodeExporters
-	neTargetsTLS, neTargetsNonTLS := getNodeExporterTargets(connectionInfo)
 	// ScrapeConfig for non-tls nodes
-	neServiceName := fmt.Sprintf("%s-node-exporter", telemetry.ServiceName)
-	desiredScrapeConfig = metricstorage.ScrapeConfig(
-		instance,
-		serviceLabels,
-		neTargetsNonTLS,
-		false,
-	)
 	err = r.createServiceScrapeConfig(ctx, instance, Log, "Node Exporter",
-		neServiceName, desiredScrapeConfig)
+		telemetry.ServiceName, endpointsNonTLS, false)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// ScrapeConfig for tls nodes
-	neServiceName = fmt.Sprintf("%s-node-exporter-tls", telemetry.ServiceName)
-	desiredScrapeConfig = metricstorage.ScrapeConfig(
-		instance,
-		serviceLabels,
-		neTargetsTLS,
-		true,
-	)
+	neServiceName := fmt.Sprintf("%s-tls", telemetry.ServiceName)
 	err = r.createServiceScrapeConfig(ctx, instance, Log, "Node Exporter",
-		neServiceName, desiredScrapeConfig)
+		neServiceName, endpointsTLS, true)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	connectionInfo, err = getComputeNodesConnectionInfo(instance, helper, telemetryv1.TelemetryPowerMonitoring)
-	if err != nil {
-		Log.Info(fmt.Sprintf("Cannot get compute node connection info. Scrape configs not created. Error: %s", err))
-	}
-
-	// kepler scrape endpoints
-	keplerEndpoints, _ := getKeplerTargets(connectionInfo)
-	if err != nil {
-		Log.Info(fmt.Sprintf("Cannot get Kepler targets. Scrape configs not created. Error: %s", err))
-	}
-
-	// keplerEndpoint is reported as empty slice when telemetry-power-monitoring service is not enabled
-	if len(keplerEndpoints) > 0 {
-		// Kepler ScrapeConfig for non-tls nodes
-		keplerServiceName := fmt.Sprintf("%s-kepler", telemetry.ServiceName)
-		desiredScrapeConfig = metricstorage.ScrapeConfig(
-			instance,
-			serviceLabels,
-			keplerEndpoints,
-			false,
-		)
-		err = r.createServiceScrapeConfig(ctx, instance, Log, "Kepler",
-			keplerServiceName, desiredScrapeConfig) // Currently Kepler doesn't support TLS so tlsEnabled is set to false
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// mysqld exporter
-	ceilometerNamespacedName := types.NamespacedName{
-		Name:      ceilometer.ServiceName,
-		Namespace: instance.Namespace,
-	}
-	ceilometerInstance := &telemetryv1.Ceilometer{}
-
-	err = r.Client.Get(ctx, ceilometerNamespacedName, ceilometerInstance)
-	if err != nil && !k8s_errors.IsNotFound(err) {
-		Log.Info(fmt.Sprintf("Cannot get ceilometer. Scrape configs not created. Error: %s", err))
-	}
-
-	mysqldExporterCfgName := fmt.Sprintf("%s-mysqld-exporter", telemetry.ServiceName)
-
-	if !k8s_errors.IsNotFound(err) && len(ceilometerInstance.Status.MysqldExporterExportedGaleras) > 0 {
-		exportedGaleras := ceilometerInstance.Status.MysqldExporterExportedGaleras
-		mysqldExporterTargets := []string{}
-		for _, galera := range exportedGaleras {
-			// NOTE: the galera port is hardcoded in the mariadb-operator without
-			// any declared constant we could use here
-			mysqldExporterTargets = append(
-				mysqldExporterTargets,
-				fmt.Sprintf("%s.%s.svc:3306", galera, instance.Namespace),
-			)
-		}
-		desiredScrapeConfig = metricstorage.ScrapeConfigMysqldExporter(
-			instance,
-			serviceLabels,
-			mysqldExporterTargets,
-			ceilometerInstance.Spec.MysqldExporterTLS.Enabled(),
-		)
-		err = r.createServiceScrapeConfig(ctx, instance, Log, "mysqld_exporter", mysqldExporterCfgName, desiredScrapeConfig)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	} else {
-		mysqldExporterScrapeConfig := &monv1alpha1.ScrapeConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      mysqldExporterCfgName,
-				Namespace: instance.Namespace,
-			},
-		}
-		if res, err := utils.EnsureDeleted(ctx, helper, mysqldExporterScrapeConfig); err != nil {
-			return res, err
-		}
-	}
-
 	instance.Status.Conditions.MarkTrue(telemetryv1.ScrapeConfigReadyCondition, condition.ReadyMessage)
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, err
 }
 
-func getNodeExporterTargets(nodes []ConnectionInfo) ([]metricstorage.LabeledTarget, []metricstorage.LabeledTarget) {
-	tls := []metricstorage.LabeledTarget{}
-	nonTLS := []metricstorage.LabeledTarget{}
-	for _, node := range nodes {
-		target := metricstorage.LabeledTarget{
-			IP:   fmt.Sprintf("%s:%d", node.IP, telemetryv1.DefaultNodeExporterPort),
-			FQDN: node.FQDN,
-		}
-		if node.TLS {
-			tls = append(tls, target)
-		} else {
-			nonTLS = append(nonTLS, target)
-		}
-	}
-	return tls, nonTLS
-}
-
-func getKeplerTargets(nodes []ConnectionInfo) ([]metricstorage.LabeledTarget, []metricstorage.LabeledTarget) {
-	tls := []metricstorage.LabeledTarget{}
-	nonTLS := []metricstorage.LabeledTarget{}
-	for _, node := range nodes {
-		target := metricstorage.LabeledTarget{
-			IP:   fmt.Sprintf("%s:%d", node.IP, telemetryv1.DefaultKeplerPort),
-			FQDN: node.FQDN,
-		}
-		if node.TLS {
-			tls = append(tls, target)
-		} else {
-			nonTLS = append(nonTLS, target)
-		}
-	}
-	return tls, nonTLS
-}
-
-func (r *MetricStorageReconciler) createDashboardObjects(ctx context.Context, instance *telemetryv1.MetricStorage, helper *helper.Helper, eventHandler handler.EventHandler) (ctrl.Result, error) {
+func (r *MetricStorageReconciler) createDashboardObjects(ctx context.Context, instance *telemetryv1.MetricStorage, eventHandler handler.EventHandler) (ctrl.Result, error) {
 	Log := r.GetLogger(ctx)
-	uiPluginObj := &obsui.UIPlugin{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "dashboards",
+	// Deploy dashboard UI plugin from OBO
+	// TODO: Use the following instead of Unstructured{} after COO 0.2.0
+	// =====
+	// uiPluginObj := &obsui.ObservabilityUIPlugin{
+	// 	ObjectMeta: metav1.ObjectMeta{
+	// 		Name:      "dashboards",
+	// 	},
+	// }
+	// =====
+	uiPluginObj := &unstructured.Unstructured{}
+	uiPluginObj.SetUnstructuredContent(map[string]interface{}{
+		"spec": map[string]interface{}{
+			"type": "Dashboards",
 		},
-	}
+	})
+	uiPluginObj.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "observability.openshift.io",
+		Version: "v1alpha1",
+		Kind:    "UIPlugin",
+	})
+	uiPluginObj.SetName("dashboards")
+	// =====
 	op, err := controllerutil.CreateOrPatch(ctx, r.Client, uiPluginObj, func() error {
-		uiPluginObj.Spec.Type = "Dashboards"
+		// uiPluginObj.Spec.Type = "Dashboards" // After we update to COO 0.2.0 as dependency
 		return nil
 	})
 	if err != nil {
@@ -792,10 +662,10 @@ func (r *MetricStorageReconciler) createDashboardObjects(ctx context.Context, in
 	err = r.ensureWatches(ctx, "prometheusrules.monitoring.rhobs", &monv1.PrometheusRule{}, eventHandler)
 	if err != nil {
 		instance.Status.Conditions.MarkFalse(telemetryv1.DashboardPrometheusRuleReadyCondition,
-			condition.Reason("Can't own PrometheusRule resource. The Cluster Observability Operator probably isn't installed"),
+			condition.Reason("Can't own PrometheusRule resource"),
 			condition.SeverityError,
 			telemetryv1.DashboardPrometheusRuleUnableToOwnMessage, err)
-		Log.Info("Can't own PrometheusRule resource. The Cluster Observability Operator probably isn't installed")
+		Log.Info("Can't own PrometheusRule resource")
 		return ctrl.Result{RequeueAfter: telemetryv1.PauseBetweenWatchAttempts}, nil
 	}
 	prometheusRule := &monv1.PrometheusRule{
@@ -853,20 +723,10 @@ func (r *MetricStorageReconciler) createDashboardObjects(ctx context.Context, in
 	// NOTE: Dashboards installed without the custom datasource will default to the openshift-monitoring prometheus causing unexpected results
 	if dataSourceSuccess {
 		dashboardCMs := map[string]*corev1.ConfigMap{
-			"grafana-dashboard-openstack-cloud":           dashboards.OpenstackCloud(datasourceName),
-			"grafana-dashboard-openstack-node":            dashboards.OpenstackNode(datasourceName),
-			"grafana-dashboard-openstack-vm":              dashboards.OpenstackVM(datasourceName),
-			"grafana-dashboard-openstack-rabbitmq":        dashboards.OpenstackRabbitmq(datasourceName),
-			"grafana-dashboard-openstack-network-traffic": dashboards.OpenstackNetworkTraffic(datasourceName),
-		}
-
-		// atleast one nodeset must have "telemetry-power-monitoring" service enabled for kepler and ipmi dashboard to be created
-		connectionInfo, err := getComputeNodesConnectionInfo(instance, helper, telemetryv1.TelemetryPowerMonitoring)
-		if err != nil {
-			Log.Info(fmt.Sprintf("Cannot get compute node connection info. Power monitoring dashboard not created. Error: %s", err))
-		} else if len(connectionInfo) > 0 {
-			dashboardCMs["grafana-dashboard-openstack-kepler"] = dashboards.OpenstackKepler(datasourceName)
-			dashboardCMs["grafana-dashboard-openstack-ceilometer-ipmi"] = dashboards.OpenstackCeilometerIpmi(datasourceName)
+			"grafana-dashboard-openstack-cloud":    dashboards.OpenstackCloud(datasourceName),
+			"grafana-dashboard-openstack-node":     dashboards.OpenstackNode(datasourceName),
+			"grafana-dashboard-openstack-vm":       dashboards.OpenstackVM(datasourceName),
+			"grafana-dashboard-openstack-rabbitmq": dashboards.OpenstackRabbitmq(datasourceName),
 		}
 
 		for dashboardName, desiredCM := range dashboardCMs {
@@ -935,74 +795,66 @@ func (r *MetricStorageReconciler) ensureWatches(
 	return err
 }
 
-func getComputeNodesConnectionInfo(
+func getNodeExporterTargets(
 	instance *telemetryv1.MetricStorage,
 	helper *helper.Helper,
-	telemetryServiceName string,
-) ([]ConnectionInfo, error) {
+) ([]string, []string, error) {
 	ipSetList, err := getIPSetList(instance, helper)
 	if err != nil {
-		return []ConnectionInfo{}, err
+		return []string{}, []string{}, err
 	}
 	inventorySecretList, err := getInventorySecretList(instance, helper)
 	if err != nil {
-		return []ConnectionInfo{}, err
+		return []string{}, []string{}, err
 	}
 	var address string
-	connectionInfo := []ConnectionInfo{}
+	addressesNonTLS := []string{}
+	addressesTLS := []string{}
 	for _, secret := range inventorySecretList.Items {
 		inventory, err := ansible.UnmarshalYAML(secret.Data["inventory"])
 		if err != nil {
-			return []ConnectionInfo{}, err
+			return []string{}, []string{}, err
 		}
 		nodeSetGroup := inventory.Groups[secret.Labels["openstackdataplanenodeset"]]
-		containsTargetService := false
+		containsTelemetry := false
 		for _, svc := range nodeSetGroup.Vars["edpm_services"].([]interface{}) {
-			if svc.(string) == telemetryServiceName {
-				containsTargetService = true
+			if svc.(string) == "telemetry" {
+				containsTelemetry = true
 			}
 		}
-		if !containsTargetService {
-			// If Telemetry|TelemetryPowerMonitoring isn't
-			// deployed on this nodeset there is no reason
-			// to include these nodes for scraping by prometheus
+		if !containsTelemetry {
+			// Telemetry isn't deployed on this nodeset
+			// there is no reason to include these nodes
+			// for scraping by prometheus
 			continue
 		}
 		for name, item := range nodeSetGroup.Hosts {
+			namespacedName := &types.NamespacedName{
+				Name:      name,
+				Namespace: instance.GetNamespace(),
+			}
+
 			if len(ipSetList.Items) > 0 {
 				// if we have IPSets, lets go to search for the IPs there
-				address, _ = getAddressFromIPSet(instance, &item, helper)
+				address, _ = getAddressFromIPSet(instance, &item, namespacedName, helper)
 			} else if _, ok := item.Vars["ansible_host"]; ok {
 				address, _ = getAddressFromAnsibleHost(&item)
 			} else {
 				// we were unable to find an IP or HostName for a node, so we do not go further
-				return connectionInfo, fmt.Errorf("failed to find an IP or HostName for node %s", name)
+				return addressesNonTLS, addressesTLS, nil
 			}
 			if address == "" {
 				// we were unable to find an IP or HostName for a node, so we do not go further
-				return connectionInfo, fmt.Errorf("failed to find an IP or HostName for node %s", name)
+				return addressesNonTLS, addressesTLS, nil
 			}
-
-			fqdn, _ := getCanonicalHostname(&item)
-
 			if TLSEnabled, ok := nodeSetGroup.Vars["edpm_tls_certs_enabled"].(bool); ok && TLSEnabled {
-				connectionInfo = append(connectionInfo, ConnectionInfo{
-					IP:       address,
-					Hostname: name,
-					TLS:      true,
-					FQDN:     fqdn,
-				})
+				addressesTLS = append(addressesTLS, fmt.Sprintf("%s:%d", address, telemetryv1.DefaultNodeExporterPort))
 			} else {
-				connectionInfo = append(connectionInfo, ConnectionInfo{
-					IP:       address,
-					Hostname: name,
-					TLS:      false,
-					FQDN:     fqdn,
-				})
+				addressesNonTLS = append(addressesNonTLS, fmt.Sprintf("%s:%d", address, telemetryv1.DefaultNodeExporterPort))
 			}
 		}
 	}
-	return connectionInfo, nil
+	return addressesNonTLS, addressesTLS, nil
 }
 
 func getIPSetList(instance *telemetryv1.MetricStorage, helper *helper.Helper) (*infranetworkv1.IPSetList, error) {
@@ -1031,44 +883,21 @@ func getInventorySecretList(instance *telemetryv1.MetricStorage, helper *helper.
 func getAddressFromIPSet(
 	instance *telemetryv1.MetricStorage,
 	item *ansible.Host,
+	namespacedName *types.NamespacedName,
 	helper *helper.Helper,
 ) (string, discoveryv1.AddressType) {
 	ansibleHost := item.Vars["ansible_host"].(string)
-	canonicalHostname, _ := getCanonicalHostname(item)
-	ctlplaneDNSDomain := ""
-
-	domains, ok := item.Vars["dns_search_domains"].([]interface{})
-	if ok {
-		for _, domain := range domains {
-			domainString, ok := domain.(string)
-			if ok && domainString[0:8] == "ctlplane" {
-				ctlplaneDNSDomain = domainString
-			}
-		}
-	}
 	// we go search for an IPSet
-	namespacedName := &types.NamespacedName{
-		Name:      canonicalHostname,
-		Namespace: instance.GetNamespace(),
-	}
 	ipset := &infranetworkv1.IPSet{}
 	err := helper.GetClient().Get(context.Background(), *namespacedName, ipset)
 	if err != nil {
-		// No IPsets found, lets try the shorter version of the IPSet name
-		namespacedName := &types.NamespacedName{
-			Name:      strings.TrimSuffix(canonicalHostname, "."+ctlplaneDNSDomain),
-			Namespace: instance.GetNamespace(),
+		// No IPsets found, lets try to get the HostName as last resource
+		if isValidDomain(ansibleHost) {
+			return ansibleHost, discoveryv1.AddressTypeFQDN
 		}
-		err = helper.GetClient().Get(context.Background(), *namespacedName, ipset)
-		if err != nil {
-			// No IPsets found, lets try to get the HostName as last resource
-			if isValidDomain(ansibleHost) {
-				return ansibleHost, discoveryv1.AddressTypeFQDN
-			}
-			// No IP address or valid hostname found anywhere
-			helper.GetLogger().Info("Did not found a valid hostname or IP address")
-			return "", ""
-		}
+		// No IP address or valid hostname found anywhere
+		helper.GetLogger().Info("Did not found a valid hostname or IP address")
+		return "", ""
 	}
 	// check that the reservations list is not empty
 	if len(ipset.Status.Reservation) > 0 {
@@ -1099,16 +928,6 @@ func getAddressFromAnsibleHost(item *ansible.Host) (string, discoveryv1.AddressT
 	return "", ""
 }
 
-func getCanonicalHostname(item *ansible.Host) (string, discoveryv1.AddressType) {
-	canonicalHostname, ok := item.Vars["canonical_hostname"].(string)
-	// is it a valid hostname?
-	if ok && isValidDomain(canonicalHostname) {
-		// it is an valid domain name
-		return canonicalHostname, discoveryv1.AddressTypeFQDN
-	}
-	return "", ""
-}
-
 // isValidDomain returns true if the domain is valid.
 func isValidDomain(domain string) bool {
 	domainRegexp := regexp.MustCompile(`^(?i)[a-z0-9-]+(\.[a-z0-9-]+)+\.?$`)
@@ -1118,7 +937,7 @@ func isValidDomain(domain string) bool {
 // SetupWithManager sets up the controller with the Manager.
 func (r *MetricStorageReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	Log := r.GetLogger(ctx)
-	prometheusServiceWatchFn := func(_ context.Context, o client.Object) []reconcile.Request {
+	prometheusServiceWatchFn := func(ctx context.Context, o client.Object) []reconcile.Request {
 		result := []reconcile.Request{}
 
 		// get all metricstorage CRs
@@ -1147,7 +966,7 @@ func (r *MetricStorageReconciler) SetupWithManager(ctx context.Context, mgr ctrl
 		return nil
 	}
 
-	reconcileAllMetricStoragesWatchFn := func(_ context.Context, o client.Object) []reconcile.Request {
+	rabbitmqWatchFn := func(ctx context.Context, o client.Object) []reconcile.Request {
 		result := []reconcile.Request{}
 
 		// get all metricstorage CRs
@@ -1224,12 +1043,7 @@ func (r *MetricStorageReconciler) SetupWithManager(ctx context.Context, mgr ctrl
 		).
 		Watches(
 			&rabbitmqv1.RabbitmqCluster{},
-			handler.EnqueueRequestsFromMapFunc(reconcileAllMetricStoragesWatchFn),
-		).
-		Watches(
-			&telemetryv1.Ceilometer{},
-			handler.EnqueueRequestsFromMapFunc(reconcileAllMetricStoragesWatchFn),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			handler.EnqueueRequestsFromMapFunc(rabbitmqWatchFn),
 		).
 		Build(r)
 	r.Controller = control

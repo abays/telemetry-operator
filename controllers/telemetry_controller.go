@@ -251,10 +251,6 @@ func (r TelemetryReconciler) reconcileCeilometer(ctx context.Context, instance *
 		return ctrl.Result{}, nil
 	}
 
-	if instance.Spec.Ceilometer.NodeSelector == nil {
-		instance.Spec.Ceilometer.NodeSelector = instance.Spec.NodeSelector
-	}
-
 	helper.GetLogger().Info("Reconciling Ceilometer", ceilometerNamespaceLabel, instance.Namespace, ceilometerNameLabel, ceilometer.ServiceName)
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), ceilometerInstance, func() error {
 		instance.Spec.Ceilometer.CeilometerSpec.DeepCopyInto(&ceilometerInstance.Spec)
@@ -297,7 +293,7 @@ func (r TelemetryReconciler) reconcileCeilometer(ctx context.Context, instance *
 	} else {
 
 		// Mirror Ceilometer's condition status
-		c := ceilometerInstance.Status.Conditions.Mirror(telemetryv1.CeilometerReadyCondition)
+		c := ceilometerInstance.CeilometerStatus.Conditions.Mirror(telemetryv1.CeilometerReadyCondition)
 		if c != nil {
 			instance.Status.Conditions.Set(c)
 		}
@@ -330,10 +326,6 @@ func (r TelemetryReconciler) reconcileAutoscaling(ctx context.Context, instance 
 		}
 		instance.Status.Conditions.Remove(telemetryv1.AutoscalingReadyCondition)
 		return ctrl.Result{}, nil
-	}
-
-	if instance.Spec.Autoscaling.Aodh.NodeSelector == nil {
-		instance.Spec.Autoscaling.Aodh.NodeSelector = instance.Spec.NodeSelector
 	}
 
 	helper.GetLogger().Info("Reconciling Autoscaling", autoscalingNamespaceLabel, instance.Namespace, autoscalingNameLabel, autoscalingName)
@@ -565,7 +557,7 @@ func (r *TelemetryReconciler) checkCeilometerGeneration(
 		return false, err
 	}
 	for _, item := range clm.Items {
-		if item.Generation != item.Status.ObservedGeneration {
+		if item.Generation != item.CeilometerStatus.ObservedGeneration {
 			return false, nil
 		}
 	}

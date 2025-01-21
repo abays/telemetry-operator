@@ -294,7 +294,7 @@ kind: ScrapeConfig
 metadata:
   labels:
     service: metricStorage
-  name: telemetry-node-exporter-tls
+  name: telemetry-tls
   ownerReferences:
   - kind: MetricStorage
     name: telemetry-kuttl-metricstorage
@@ -311,7 +311,7 @@ kind: ScrapeConfig
 metadata:
   labels:
     service: metricStorage
-  name: telemetry-node-exporter
+  name: telemetry
   ownerReferences:
   - kind: MetricStorage
     name: telemetry-kuttl-metricstorage

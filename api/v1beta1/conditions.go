@@ -56,28 +56,8 @@ const (
 
 	DashboardDefinitionReadyCondition condition.Type = "DashboardDefinitionReady"
 
-	// KSMTLSInputReadyCondition Status=True condition when required TLS sources are ready for KSM
-	KSMTLSInputReadyCondition condition.Type = "KSMTLSInputReady"
-
-	// KSMDeploymentReadyCondition Status=True condition when KSM statefulset created ok
-	KSMDeploymentReadyCondition condition.Type = "KSMDeploymentReady"
-
-	// KSMServiceConfigReadyCondition Status=True Condition which indicates that all service config got rendered ok
-	KSMServiceConfigReadyCondition condition.Type = "KSMServiceConfigReady"
-
-	// KSMCreateServiceReadyCondition Status=True condition when k8s service for the KSM created ok
-	KSMCreateServiceReadyCondition condition.Type = "KSMCreateServiceReady"
-
-	// MysqldExporter conditions
-	MysqldExporterDBReadyCondition condition.Type = "MysqldExporterDBReady"
-
-	MysqldExporterDeploymentReadyCondition condition.Type = "MysqldExporterDeploymentReady"
-
-	MysqldExporterMariaDBAccountReadyCondition condition.Type = "MysqldExporterMariaDBAccountReady"
-
-	MysqldExporterServiceConfigReadyCondition condition.Type = "MysqldExporterServiceConfigReady"
-
-	MysqldExporterTLSInputReadyCondition condition.Type = "MysqldExporterTLSInputReady"
+	// KSMReadyCondition Status=True condition which indicates if the KSM is configured and operational
+	KSMReadyCondition condition.Type = "KSMReady"
 )
 
 // Telemetry Reasons used by API objects.
@@ -216,12 +196,15 @@ const (
 	//
 	// KSMReady condition messages
 	//
-	// KSMDisabledMessage
-	KSMDisabledMessage = "kube-state-metrics is disabled"
+	// KSMReadyInitMessage
+	KSMReadyInitMessage = "KSM not started"
 
-	//
-	// mysqld_exporter condition messages
-	//
-	// MysqldExporterDisabledMessage
-	MysqldExporterDisabledMessage = "mysqld_exporter is disabled"
+	// KSMReadyMessage
+	KSMReadyMessage = "KSM completed"
+
+	// KSMReadyErrorMessage
+	KSMReadyErrorMessage = "KSM error occured %s"
+
+	// KSMReadyRunningMessage
+	KSMReadyRunningMessage = "KSM in progress"
 )

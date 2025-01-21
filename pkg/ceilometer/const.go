@@ -20,8 +20,6 @@ const (
 	ServiceName = "ceilometer"
 	// ComputeServiceName -
 	ComputeServiceName = "ceilometer-compute"
-	// IpmiServiceName -
-	IpmiServiceName = "ceilometer-ipmi"
 	// ServiceType -
 	ServiceType = "Ceilometer"
 
